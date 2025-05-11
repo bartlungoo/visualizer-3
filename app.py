@@ -5,6 +5,20 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Stillr Visualisatietool", layout="wide")
 
+st.markdown("""
+    <style>
+    body {
+        background-color: #f8f8f8;
+        font-family: 'Garamond', 'Lato', sans-serif;
+    }
+    .block-container {
+        padding-top: 2rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.image("stillr_logo.png", width=200)
+
 st.title("Stillr Akoestisch Paneel Visualisatietool")
 
 st.sidebar.header("Instellingen")
@@ -22,12 +36,17 @@ paneeltypes = {
 }
 paneel_keuze = st.sidebar.selectbox("Kies een paneeltype", list(paneeltypes.keys()))
 
-# Draaien (voor bijv. L of XL)
+# Oriëntatie
 draai = st.sidebar.radio("Oriëntatie", ["Verticaal", "Horizontaal"])
 
-# Dummy textuurkeuze
-stoffen = ["Affection", "Kind", "Tender", "Sympathy"]
-stof = st.sidebar.selectbox("Kies een stof", stoffen)
+# Alle stoffen inlezen uit map
+stoffenpad = "blazer_lite_textures"
+stoffen_lijst = sorted([
+    f.replace("Blazer Lite-", "").replace(".jpg", "")
+    for f in os.listdir(stoffenpad) if f.endswith(".jpg")
+])
+
+stof = st.sidebar.selectbox("Kies een stof", stoffen_lijst)
 
 # Breedte muur (manuele invoer)
 ken_breedte = st.sidebar.checkbox("Ik ken de breedte van mijn muur/plafond")
@@ -42,11 +61,13 @@ uploaded_file = st.file_uploader("Upload een foto", type=["jpg", "jpeg", "png"])
 if uploaded_file:
     image = Image.open(uploaded_file)
     image.save("uploaded_image.jpg")  # tijdelijk lokaal opslaan
+    img_width, img_height = image.size
+
+    schaal = 1.0
+    if ken_breedte:
+        schaal = 900 / muur_breedte_cm
 
     st.success(f"Paneel: {paneel_keuze} ({paneeltypes[paneel_keuze][0]} x {paneeltypes[paneel_keuze][1]} cm), Oriëntatie: {draai}, Stof: {stof}")
-
-    st.markdown("## Sleep panelen naar de gewenste plek")
-    st.markdown("Gebruik de knoppen hieronder om panelen toe te voegen, roteren of verwijderen.")
 
     if "paneel_count" not in st.session_state:
         st.session_state.paneel_count = 3
@@ -54,8 +75,15 @@ if uploaded_file:
     if st.button("➕ Voeg een paneel toe"):
         st.session_state.paneel_count += 1
 
+    breedte_cm, hoogte_cm = paneeltypes[paneel_keuze]
+    if draai == "Horizontaal":
+        breedte_cm, hoogte_cm = hoogte_cm, breedte_cm
+
+    breedte_px = int(breedte_cm * schaal)
+    hoogte_px = int(hoogte_cm * schaal)
+
     panelen_html = "".join([
-        f'<div class="paneel" draggable="true" id="paneel{i}" ondragstart="drag(event)"></div>'
+        f'<div class="paneel" draggable="true" id="paneel{i}" ondragstart="drag(event)" style="width:{breedte_px}px;height:{hoogte_px}px;background-image:url(\"{stoffenpad}/Blazer Lite-{stof}.jpg\");"></div>'
         for i in range(1, st.session_state.paneel_count + 1)
     ])
 
@@ -83,9 +111,6 @@ if uploaded_file:
                     width: 100%;
                 }}
                 .paneel {{
-                    width: 100px;
-                    height: 100px;
-                    background-image: url('textures/{stof}.jpg');
                     background-size: cover;
                     position: absolute;
                     top: 50px;
@@ -95,7 +120,7 @@ if uploaded_file:
                 }}
             </style>
         </head>
-        <body>
+        <body style="background-color: #f8f8f8; font-family: Garamond, sans-serif;">
             <div id="container">
                 <img id="bg-img" src="uploaded_image.jpg" />
                 {panelen_html}
@@ -143,7 +168,8 @@ if uploaded_file:
         </body>
         </html>
         """,
-        height=800,
+        height=850,
     )
 else:
     st.info("Upload eerst een foto om te beginnen.")
+
