@@ -2,6 +2,10 @@ import streamlit as st
 from PIL import Image
 import os
 import streamlit.components.v1 as components
+import numpy as np
+import torch
+from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
+import cv2
 
 st.set_page_config(page_title="Stillr Visualisatietool", layout="wide")
 
@@ -23,23 +27,18 @@ st.title("Stillr Akoestisch Paneel Visualisatietool")
 
 st.sidebar.header("Instellingen")
 
-# Keuze tussen muur of plafond
 oppervlak = st.sidebar.radio("Wat wil je visualiseren?", ["Muur", "Plafond"])
 
-# Paneeltypes
 paneeltypes = {
     "M": (60, 60),
     "L": (60, 120),
     "XL": (60, 180),
     "Extra-Large": (95, 190),
-    "Moon": (95, 95),  # Cirkel, apart behandelen
+    "Moon": (95, 95),
 }
 paneel_keuze = st.sidebar.selectbox("Kies een paneeltype", list(paneeltypes.keys()))
-
-# Oriëntatie
 draai = st.sidebar.radio("Oriëntatie", ["Verticaal", "Horizontaal"])
 
-# Alle stoffen inlezen uit map
 stoffenpad = "blazer_lite_textures"
 stoffen_lijst = sorted([
     f.replace("Blazer Lite-", "").replace(".jpg", "")
@@ -48,9 +47,9 @@ stoffen_lijst = sorted([
 
 stof = st.sidebar.selectbox("Kies een stof", stoffen_lijst)
 
-# Breedte muur (manuele invoer)
 ken_breedte = st.sidebar.checkbox("Ik ken de breedte van mijn muur/plafond")
 muur_breedte_cm = None
+
 if ken_breedte:
     muur_breedte_cm = st.sidebar.number_input("Voer breedte in (cm)", min_value=50, max_value=1000, value=400)
 
@@ -59,13 +58,38 @@ st.write("Upload een foto van je", oppervlak.lower(), "om panelen te plaatsen.")
 uploaded_file = st.file_uploader("Upload een foto", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    image = Image.open(uploaded_file)
-    image.save("uploaded_image.jpg")  # tijdelijk lokaal opslaan
+    image = Image.open(uploaded_file).convert("RGB")
+    image.save("uploaded_image.jpg")
     img_width, img_height = image.size
 
     schaal = 1.0
     if ken_breedte:
         schaal = 900 / muur_breedte_cm
+    else:
+        # AI-gebaseerde wanddetectie met SAM
+        st.info("Automatische schaalinschatting via AI-segmentatie (SAM)")
+        try:
+            sam_checkpoint = "sam_vit_b_01ec64.pth"  # dit moet lokaal beschikbaar zijn
+            model_type = "vit_b"
+
+            sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
+            sam.to(device="cpu")
+            mask_generator = SamAutomaticMaskGenerator(sam)
+
+            np_image = np.array(image)
+            masks = mask_generator.generate(np_image)
+
+            if masks:
+                largest_mask = max(masks, key=lambda x: np.sum(x['segmentation']))
+                ys, xs = np.where(largest_mask['segmentation'])
+                detected_width = max(xs) - min(xs)
+                muur_breedte_cm = 400  # aanname
+                schaal = 900 / muur_breedte_cm
+                st.success("AI heeft grootste wandvlak gevonden. Systeem gebruikt standaardmuurbreedte van 400 cm voor schaal.")
+            else:
+                st.warning("Geen segmenten gevonden. Gebruik handmatige invoer.")
+        except Exception as e:
+            st.error(f"Fout bij segmentatie: {e}")
 
     st.success(f"Paneel: {paneel_keuze} ({paneeltypes[paneel_keuze][0]} x {paneeltypes[paneel_keuze][1]} cm), Oriëntatie: {draai}, Stof: {stof}")
 
@@ -172,4 +196,3 @@ if uploaded_file:
     )
 else:
     st.info("Upload eerst een foto om te beginnen.")
-
