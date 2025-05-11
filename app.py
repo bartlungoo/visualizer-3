@@ -1,89 +1,149 @@
 import streamlit as st
-from PIL import Image, ImageDraw, ImageEnhance
-import uuid
+from PIL import Image
+import os
+import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Stillr Interactieve Panelen", layout="wide")
+st.set_page_config(page_title="Stillr Visualisatietool", layout="wide")
 
-st.title("Stillr - Interactieve Akoestische Panelen")
+st.title("Stillr Akoestisch Paneel Visualisatietool")
 
-PANEL_TYPES = {
-    "M (47x95 cm)": (47, 95),
-    "L (95x95 cm)": (95, 95),
-    "XL (95x190 cm)": (95, 190),
-    "Moon (Ø95 cm)": (95, 95)
+st.sidebar.header("Instellingen")
+
+# Keuze tussen muur of plafond
+oppervlak = st.sidebar.radio("Wat wil je visualiseren?", ["Muur", "Plafond"])
+
+# Paneeltypes
+paneeltypes = {
+    "M": (60, 60),
+    "L": (60, 120),
+    "XL": (60, 180),
+    "Extra-Large": (95, 190),
+    "Moon": (95, 95),  # Cirkel, apart behandelen
 }
+paneel_keuze = st.sidebar.selectbox("Kies een paneeltype", list(paneeltypes.keys()))
 
-TEXTURES = {
-    "TOUCH Grijs": "stof_grijs.jpg",
-    "Blazer Lite Courtesy": "stof_courtesy.jpg",
-    "Blazer Lite Retreat": "stof_retreat.jpg"
-}
+# Draaien (voor bijv. L of XL)
+draai = st.sidebar.radio("Oriëntatie", ["Verticaal", "Horizontaal"])
 
-st.markdown("### 1. Upload een foto van je ruimte")
-uploaded_image = st.file_uploader("Upload muur- of plafondfoto", type=["jpg", "jpeg", "png"])
+# Dummy textuurkeuze
+stoffen = ["Affection", "Kind", "Tender", "Sympathy"]
+stof = st.sidebar.selectbox("Kies een stof", stoffen)
 
-if uploaded_image:
-    bg_image = Image.open(uploaded_image).convert("RGB")
-    st.image(bg_image, caption="Originele afbeelding", use_column_width=True)
+# Breedte muur (manuele invoer)
+ken_breedte = st.sidebar.checkbox("Ik ken de breedte van mijn muur/plafond")
+muur_breedte_cm = None
+if ken_breedte:
+    muur_breedte_cm = st.sidebar.number_input("Voer breedte in (cm)", min_value=50, max_value=1000, value=400)
 
-    if "panel_list" not in st.session_state:
-        st.session_state.panel_list = []
+st.write("Upload een foto van je", oppervlak.lower(), "om panelen te plaatsen.")
 
-    cols = st.columns([2, 2, 1, 1])
-    with cols[0]:
-        p_type = st.selectbox("Paneeltype", list(PANEL_TYPES.keys()))
-    with cols[1]:
-        p_texture = st.selectbox("Stofkleur", list(TEXTURES.keys()))
-    with cols[2]:
-        if st.button("➕ Voeg paneel toe"):
-            new_panel = {
-                "id": str(uuid.uuid4()),
-                "type": p_type,
-                "texture": p_texture,
-                "x": 50,
-                "y": 50,
-                "rotated": False
-            }
-            st.session_state.panel_list.append(new_panel)
-    with cols[3]:
-        if st.button("🗑️ Reset alles"):
-            st.session_state.panel_list = []
+uploaded_file = st.file_uploader("Upload een foto", type=["jpg", "jpeg", "png"])
 
-    st.markdown("### 3. Posities aanpassen & visualiseren")
-    for panel in st.session_state.panel_list:
-        with st.expander(f"Paneel: {panel['type']} - {panel['texture']}"):
-            panel["x"] = st.slider(f"X-positie {panel['id']}", 0, 100, panel["x"])
-            panel["y"] = st.slider(f"Y-positie {panel['id']}", 0, 100, panel["y"])
-            panel["rotated"] = st.checkbox(f"Roteren 90° {panel['id']}", value=panel["rotated"])
-            if st.button(f"Verwijder paneel {panel['id']}"):
-                st.session_state.panel_list = [p for p in st.session_state.panel_list if p["id"] != panel["id"]]
-                st.experimental_rerun()
+if uploaded_file:
+    image = Image.open(uploaded_file)
+    image.save("uploaded_image.jpg")  # tijdelijk lokaal opslaan
 
-    preview = bg_image.copy()
-    img_w, img_h = preview.size
+    st.success(f"Paneel: {paneel_keuze} ({paneeltypes[paneel_keuze][0]} x {paneeltypes[paneel_keuze][1]} cm), Oriëntatie: {draai}, Stof: {stof}")
 
-    for panel in st.session_state.panel_list:
-        w_cm, h_cm = PANEL_TYPES[panel["type"]]
-        px_per_cm = img_w / 400
-        w_px = int(w_cm * px_per_cm)
-        h_px = int(h_cm * px_per_cm)
+    st.markdown("## Sleep panelen naar de gewenste plek")
+    st.markdown("Gebruik de knoppen hieronder om panelen toe te voegen, roteren of verwijderen.")
 
-        tex = Image.open(TEXTURES[panel["texture"]]).resize((w_px, h_px))
+    if "paneel_count" not in st.session_state:
+        st.session_state.paneel_count = 3
 
-        if panel["rotated"]:
-            tex = tex.rotate(90, expand=True)
-            w_px, h_px = tex.size
+    if st.button("➕ Voeg een paneel toe"):
+        st.session_state.paneel_count += 1
 
-        pos_x = int((panel["x"] / 100) * (img_w - w_px))
-        pos_y = int((panel["y"] / 100) * (img_h - h_px))
+    panelen_html = "".join([
+        f'<div class="paneel" draggable="true" id="paneel{i}" ondragstart="drag(event)"></div>'
+        for i in range(1, st.session_state.paneel_count + 1)
+    ])
 
-        shadow = Image.new("RGBA", tex.size, (0, 0, 0, 80))
-        preview_rgba = preview.convert("RGBA")
-        preview_rgba.paste(shadow, (pos_x+10, pos_y+10), shadow)
-        preview_rgba.paste(tex, (pos_x, pos_y))
-        preview = preview_rgba.convert("RGB")
+    rotatie_buttons = "".join([
+        f'<button onclick="roteerPaneel(\"paneel{i}\")">Roteer paneel {i}</button>'
+        for i in range(1, st.session_state.paneel_count + 1)
+    ])
 
-    st.image(preview, caption="Visualisatie", use_column_width=True)
-    preview.save("stillr_visual_result.jpg")
-    with open("stillr_visual_result.jpg", "rb") as file:
-        st.download_button("📅 Download visualisatie", file, file_name="stillr_visualisatie.jpg", mime="image/jpeg")
+    verwijder_buttons = "".join([
+        f'<button onclick="verwijderPaneel(\"paneel{i}\")">Verwijder paneel {i}</button>'
+        for i in range(1, st.session_state.paneel_count + 1)
+    ])
+
+    components.html(
+        f"""
+        <html>
+        <head>
+            <style>
+                #container {{
+                    position: relative;
+                    width: 100%;
+                    max-width: 900px;
+                }}
+                #bg-img {{
+                    width: 100%;
+                }}
+                .paneel {{
+                    width: 100px;
+                    height: 100px;
+                    background-image: url('textures/{stof}.jpg');
+                    background-size: cover;
+                    position: absolute;
+                    top: 50px;
+                    left: 50px;
+                    cursor: move;
+                    transform: rotate(0deg);
+                }}
+            </style>
+        </head>
+        <body>
+            <div id="container">
+                <img id="bg-img" src="uploaded_image.jpg" />
+                {panelen_html}
+            </div>
+            <br/>
+            {rotatie_buttons}<br/><br/>
+            {verwijder_buttons}
+
+            <script>
+                var dragged;
+                document.addEventListener("dragstart", function(event) {{
+                    dragged = event.target;
+                    event.target.style.opacity = 0.5;
+                }}, false);
+
+                document.addEventListener("dragend", function(event) {{
+                    event.target.style.opacity = "";
+                }}, false);
+
+                document.addEventListener("dragover", function(event) {{
+                    event.preventDefault();
+                }}, false);
+
+                document.addEventListener("drop", function(event) {{
+                    event.preventDefault();
+                    if (event.target.id === "container" || event.target.id === "bg-img") {{
+                        dragged.style.left = (event.clientX - 50) + "px";
+                        dragged.style.top = (event.clientY - 50) + "px";
+                    }}
+                }}, false);
+
+                function roteerPaneel(id) {{
+                    let el = document.getElementById(id);
+                    let current = el.style.transform.match(/rotate\((\d+)deg\)/);
+                    let angle = current ? parseInt(current[1]) : 0;
+                    angle = (angle + 90) % 360;
+                    el.style.transform = `rotate(${angle}deg)`;
+                }}
+
+                function verwijderPaneel(id) {{
+                    let el = document.getElementById(id);
+                    if (el) el.remove();
+                }}
+            </script>
+        </body>
+        </html>
+        """,
+        height=800,
+    )
+else:
+    st.info("Upload eerst een foto om te beginnen.")
